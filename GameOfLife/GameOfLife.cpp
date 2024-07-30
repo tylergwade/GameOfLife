@@ -69,6 +69,16 @@ LRESULT GameOfLife::WndProc(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lParam)
         clientWidth = LOWORD(lParam);
         clientHeight = HIWORD(lParam);
 
+        const float size = clientWidth < clientHeight ? clientWidth : clientHeight;
+
+        cellSize = (size - size * 0.07f) / gridSize;
+
+        if (cellSize < 20.f)
+            cellSize = 20.f;
+
+        centerOffsetX = clientWidth * 0.5f - (gridSize * 0.5f) * cellSize;
+        centerOffsetY = clientHeight * 0.5f - (gridSize * 0.5f) * cellSize;
+
         if (renderTarget)
         {
             renderTarget->Resize(D2D1::SizeU(clientWidth, clientHeight));
@@ -83,10 +93,91 @@ LRESULT GameOfLife::WndProc(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lParam)
         const int cursorX = GET_X_LPARAM(lParam);
         const int cursorY = GET_Y_LPARAM(lParam);
 
-        const int col = (int)floorf(cursorX / cellSize);
-        const int row = (int)floorf(cursorY / cellSize);
+        const int col = (int)floorf((cursorX - translationX - centerOffsetX) / cellSize);
+        const int row = (int)floorf((cursorY - translationY - centerOffsetY) / cellSize);
 
-        Cells[row][col] = !Cells[row][col];
+        if (col >= 0 && col < gridSize && row >= 0 && row < gridSize)
+        {
+            Cells[row][col] = !Cells[row][col];
+        }
+
+        return 0;
+    }
+
+    case WM_RBUTTONDOWN:
+    {
+        int cursorX = GET_X_LPARAM(lParam);
+        int cursorY = GET_Y_LPARAM(lParam);
+
+        int padding = 50;
+        RECT clientRect = { padding, padding, clientWidth - padding, clientHeight - padding };
+
+        if (cursorX < clientRect.left)
+            cursorX = clientRect.left;
+        if (cursorY < clientRect.top)
+            cursorY = clientRect.top;
+        if (cursorX >= clientRect.right)
+            cursorX = clientRect.right - 1;
+        if (cursorY >= clientRect.bottom)
+            cursorY = clientRect.bottom - 1;
+
+        SetCapture(hWnd);
+
+        cursorStartX = cursorX;
+        cursorStartY = cursorY;
+        startTranslationX = translationX;
+        startTranslationY = translationY;
+
+        ClientToScreen(hWnd, ((LPPOINT)&clientRect.left));
+        ClientToScreen(hWnd, ((LPPOINT)&clientRect.right));
+        ClipCursor(&clientRect);
+
+        ShowCursor(false);
+
+        isPanning = true;
+
+        return 0;
+    }
+
+    case WM_RBUTTONUP:
+    {
+        if (isPanning)
+        {
+            ReleaseCapture();
+
+            POINT point = { cursorStartX + translationX - startTranslationX, cursorStartY + translationY - startTranslationY };
+            ClientToScreen(hWnd, &point);
+            SetCursorPos(point.x, point.y);
+
+            ShowCursor(true);
+            ClipCursor(nullptr);
+            isPanning = false;
+        }
+
+        return 0;
+    }
+
+    case WM_MOUSEMOVE:
+    {
+        const int cursorX = GET_X_LPARAM(lParam);
+        const int cursorY = GET_Y_LPARAM(lParam);
+
+        if (isPanning)
+        {
+            RECT windowRect;
+            GetWindowRect(hWnd, &windowRect);
+
+            POINT clientTopLeft = { windowRect.left, windowRect.top };
+            ScreenToClient(hWnd, &clientTopLeft);
+
+            int topMargin = -clientTopLeft.y;
+            int leftMargin = -clientTopLeft.x;
+            
+            translationX += cursorX - cursorStartX;
+            translationY += cursorY - cursorStartY;
+
+            SetCursorPos(windowRect.left + cursorStartX + leftMargin, windowRect.top + cursorStartY + topMargin);
+        }
 
         return 0;
     }
@@ -104,7 +195,7 @@ LRESULT GameOfLife::WndProc(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lParam)
 
             if (isPlaying)
             {
-                SetTimer(hWnd, 123, 100, NULL);
+                SetTimer(hWnd, 123, 80, NULL);
             }
             else
             {
@@ -134,9 +225,9 @@ void GameOfLife::StepSimulation()
 {
     memcpy(TempCells, Cells, sizeof(Cells));
 
-    for (int row = 0; row < GridSize; row++)
+    for (int row = 0; row < gridSize; row++)
     {
-        for (int col = 0; col < GridSize; col++)
+        for (int col = 0; col < gridSize; col++)
         {
             // whether or the cell is currently alive.
             bool isAlive = TempCells[row][col];
@@ -189,8 +280,8 @@ int GameOfLife::CountAliveNeighbors(int trow, int tcol) const
     if (startRow < 0) startRow = 0;
     if (startCol < 0) startCol = 0;
 
-    if (lastRow >= GridSize) lastRow = GridSize - 1;
-    if (lastCol >= GridSize) lastCol = GridSize - 1;
+    if (lastRow >= gridSize) lastRow = gridSize - 1;
+    if (lastCol >= gridSize) lastCol = gridSize - 1;
 
     int alive = 0;
 
@@ -246,7 +337,7 @@ bool GameOfLife::Initialize(HINSTANCE hInstance)
     const int windowX = screenWidth / 2 - windowWidth / 2;
     const int windowY = screenHeight / 2 - windowHeight / 2;
 
-    hWnd = CreateWindowEx(0, wc.lpszClassName, TEXT("GameOfLife"), WS_POPUPWINDOW | WS_CAPTION | WS_MINIMIZEBOX, windowX, windowY, windowWidth, windowHeight, NULL, NULL, hInstance, NULL);
+    hWnd = CreateWindowEx(0, wc.lpszClassName, TEXT("GameOfLife"), WS_OVERLAPPEDWINDOW, windowX, windowY, windowWidth, windowHeight, NULL, NULL, hInstance, NULL);
 
     if (hWnd == NULL)
     {
@@ -263,7 +354,7 @@ bool GameOfLife::Initialize(HINSTANCE hInstance)
         return false;
     }
 
-    hr = factory->CreateHwndRenderTarget(D2D1::RenderTargetProperties(), D2D1::HwndRenderTargetProperties(hWnd, D2D1::SizeU(clientWidth, clientHeight)), renderTarget.GetAddressOf());
+    hr = factory->CreateHwndRenderTarget(D2D1::RenderTargetProperties(), D2D1::HwndRenderTargetProperties(hWnd, D2D1::SizeU(clientWidth, clientHeight), D2D1_PRESENT_OPTIONS_IMMEDIATELY), renderTarget.GetAddressOf());
 
     if (FAILED(hr))
     {
@@ -279,7 +370,7 @@ bool GameOfLife::Initialize(HINSTANCE hInstance)
         return false;
     }
 
-    cellSize = (float)clientWidth / GridSize;
+    cellSize = 30.f;
 
     // Setup an initial cell state
     Cells[12][12] = true;
@@ -302,6 +393,13 @@ void GameOfLife::Run()
 
     while (PumpMessages())
     {
+        //POINT cursorPos;
+        //GetCursorPos(&cursorPos);
+        //ScreenToClient(hWnd, &cursorPos);
+        //cellSize = cursorPos.x;
+        //centerOffsetX = clientWidth * 0.5f - (gridSize * 0.5f) * cellSize;
+        //centerOffsetY = clientHeight * 0.5f - (gridSize * 0.5f) * cellSize;
+
         DrawWindow();
     }
 }
@@ -309,39 +407,58 @@ void GameOfLife::Run()
 void GameOfLife::DrawWindow() const
 {
     renderTarget->BeginDraw();
-    renderTarget->Clear(D2D1::ColorF(0.1f, 0.1f, 0.1f));
-    renderTarget->SetAntialiasMode(D2D1_ANTIALIAS_MODE_ALIASED);
+    renderTarget->Clear(D2D1::ColorF(0.09f, 0.09f, 0.12f));
+    //renderTarget->SetAntialiasMode(D2D1_ANTIALIAS_MODE_ALIASED);
+
+    const float left = translationX + centerOffsetX;
+    const float top = translationY + centerOffsetY;
+
+    const float size = gridSize * cellSize;
+
+    D2D1_RECT_F fullRect = D2D1::RectF(left, top, left + size, top + size);
+
+    brush->SetColor(D2D1::ColorF(0.1f, 0.1f, 0.14f));
+    renderTarget->FillRectangle(fullRect, brush.Get());
 
     brush->SetColor(D2D1::ColorF(1.0f, 1.0f, 1.0f));
 
     // Draw the actual cells
-    for (size_t y = 0; y < GridSize; y++)
+    for (size_t row = 0; row < gridSize; row++)
     {
-        for (size_t x = 0; x < GridSize; x++)
+        for (size_t col = 0; col < gridSize; col++)
         {
-            if (Cells[y][x])
+            if (Cells[row][col])
             {
-                const float posX = floorf(x * cellSize);
-                const float posY = floorf(y * cellSize);
+                const float posX = col * cellSize + translationX + centerOffsetX;
+                const float posY = row * cellSize + translationY + centerOffsetY;
                 renderTarget->FillRectangle(D2D1::RectF(posX, posY, posX + cellSize, posY + cellSize), brush.Get());
             }
         }
     }
 
     // Draw a grid of lines
-    brush->SetColor(D2D1::ColorF(0.25f, 0.25f, 0.25f));
+    brush->SetColor(D2D1::ColorF(0.25f, 0.25f, 0.4f));
 
-    for (size_t row = 0; row < GridSize; row++)
+    for (size_t row = 1; row < gridSize; row++)
     {
-        const float posY = floorf(row * cellSize) + 0.5f;
-        renderTarget->DrawLine(D2D1::Point2F(0.f, posY), D2D1::Point2F(clientWidth, posY), brush.Get(), 1.0f);
+        const float posY = row * cellSize + translationY + centerOffsetY;
+        renderTarget->DrawLine(D2D1::Point2F(fullRect.left, posY), D2D1::Point2F(fullRect.right, posY), brush.Get(), 1.5f);
     }
 
-    for (size_t col = 0; col < GridSize; col++)
+    for (size_t col = 1; col < gridSize; col++)
     {
-        const float posX = floorf(col * cellSize) + 0.5f;
-        renderTarget->DrawLine(D2D1::Point2F(posX, 0.f), D2D1::Point2F(posX, clientHeight), brush.Get(), 1.0f);
+        float posX = col * cellSize + translationX + centerOffsetX;
+        renderTarget->DrawLine(D2D1::Point2F(posX, fullRect.top), D2D1::Point2F(posX, fullRect.bottom), brush.Get(), 1.5f);
     }
+
+    const float halfBorderSize = 0.5f;
+    fullRect.left -= halfBorderSize;
+    fullRect.top -= halfBorderSize;
+    fullRect.right += halfBorderSize - 1.f;
+    fullRect.bottom += halfBorderSize - 1.f;
+
+    brush->SetColor(D2D1::ColorF(0.35f, 0.35f, 0.5f));
+    renderTarget->DrawRectangle(fullRect, brush.Get(), halfBorderSize * 2.f);
 
     renderTarget->EndDraw();
 }

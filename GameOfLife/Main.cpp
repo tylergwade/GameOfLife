@@ -1,6 +1,7 @@
 #include "GameOfLife.h"
 
 #include <Windows.h>
+#include <memory>
 
 int WinMain(
     _In_ HINSTANCE hInstance,
@@ -8,12 +9,12 @@ int WinMain(
     _In_ LPSTR lpCmdLine,
     _In_ int nShowCmd)
 {
-    GameOfLife gol;
+    std::unique_ptr<GameOfLife> gol = std::make_unique<GameOfLife>();
 
-    if (!gol.Initialize(hInstance))
+    if (!gol->Initialize(hInstance))
         return -1;
 
-    gol.Run();
+    gol->Run();
 
     return 0;
 }

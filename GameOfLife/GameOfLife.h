@@ -9,22 +9,34 @@
 
 struct GameOfLife
 {
-	static constexpr size_t GridSize = 34;
+	static constexpr size_t gridSize = 25;
 
 	// Game Of Life is composed of a grid of cells
 	// All the data for the cells is stored in this 2D array.
 	// Each cell can be either ALIVE or DEAD.
-	bool Cells[GridSize][GridSize];
+	bool Cells[gridSize][gridSize];
 
 	// Temporary cells to help aid in computing which cells live and die.
-	bool TempCells[GridSize][GridSize];
-
-	static_assert(sizeof(Cells) == sizeof(TempCells), "Cells and TempCells must have the same size");
+	bool TempCells[gridSize][gridSize];
 
 	// The size of a cell (width and height)
 	float cellSize;
 
-	bool isPlaying;
+	bool isPlaying = false;
+
+	float translationX = 0.f;
+	float translationY = 0.f;
+
+	float startTranslationX = 0.f;
+	float startTranslationY = 0.f;
+
+	float cursorStartX = 0.f;
+	float cursorStartY = 0.f;
+
+	float centerOffsetX = 0.f;
+	float centerOffsetY = 0.f;
+
+	bool isPanning = false;
 
 	// Window
 	HWND hWnd;
